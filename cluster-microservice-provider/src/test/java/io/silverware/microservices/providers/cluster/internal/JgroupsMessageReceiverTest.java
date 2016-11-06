@@ -51,8 +51,8 @@ public class JgroupsMessageReceiverTest {
    private Responder responder2;
    @Capturing
    private RemoteServiceHandlesStore store;
-   public static final Message STRING_MSG = new Message(null, null, "hello");
-   public static final Message UUID_MSG = new Message(null, null, UUID.randomUUID());
+   public static final Message STRING_MSG = new Message(null, "hello");
+   public static final Message UUID_MSG = new Message(null, UUID.randomUUID());
 
    @BeforeMethod
    public void setUp() throws Exception {

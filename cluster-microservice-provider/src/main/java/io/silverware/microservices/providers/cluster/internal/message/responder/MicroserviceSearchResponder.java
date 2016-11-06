@@ -19,11 +19,14 @@
  */
 package io.silverware.microservices.providers.cluster.internal.message.responder;
 
-import static io.silverware.microservices.providers.cluster.internal.exception.SilverWareClusteringException.SilverWareClusteringError.MULTIPLE_IMPLEMENTATIONS_FOUND;
+import static io.silverware.microservices.providers.cluster.internal.message.response.MicroserviceSearchResponse.Result.EXCEPTION_THROWN_DURING_LOOKUP;
+import static io.silverware.microservices.providers.cluster.internal.message.response.MicroserviceSearchResponse.Result.FOUND;
+import static io.silverware.microservices.providers.cluster.internal.message.response.MicroserviceSearchResponse.Result.MULTIPLE_IMPLEMENTATIONS_FOUND;
+import static io.silverware.microservices.providers.cluster.internal.message.response.MicroserviceSearchResponse.Result.NOT_FOUND;
+import static io.silverware.microservices.providers.cluster.internal.message.response.MicroserviceSearchResponse.Result.WRONG_VERSION;
 
 import io.silverware.microservices.Context;
 import io.silverware.microservices.MicroserviceMetaData;
-import io.silverware.microservices.providers.cluster.internal.exception.SilverWareClusteringException;
 import io.silverware.microservices.providers.cluster.internal.message.response.MicroserviceSearchResponse;
 import io.silverware.microservices.silver.cluster.LocalServiceHandle;
 
@@ -52,21 +55,28 @@ public class MicroserviceSearchResponder extends AbstractResponder<MicroserviceM
 
    @Override
    MicroserviceSearchResponse doProcessMessage(Address source, MicroserviceMetaData query) {
-      List<LocalServiceHandle> serviceHandles = filterVersionCompatible(context.assureHandles(query), query);
 
-      if (serviceHandles.size() > 1) {
-         log.error("Multiple implementations found.");
-         throw new SilverWareClusteringException(MULTIPLE_IMPLEMENTATIONS_FOUND);
-      }
-      if (serviceHandles.isEmpty()) {
-         if (log.isTraceEnabled()) {
-            log.trace("No services found for metadata: {} ", query);
+      try {
+         List<LocalServiceHandle> localServiceHandles = context.assureHandles(query);
+         List<LocalServiceHandle> serviceHandles = filterVersionCompatible(localServiceHandles, query);
+
+         if (serviceHandles.size() > 1) {
+            log.error("Multiple implementations found.", serviceHandles);
+            return new MicroserviceSearchResponse(MULTIPLE_IMPLEMENTATIONS_FOUND);
          }
-         return new MicroserviceSearchResponse(null, MicroserviceSearchResponse.Result.NOT_FOUND);
-      } else if (log.isTraceEnabled()) {
-         log.trace("{} services found for {}", serviceHandles.size(), query);
+         if (serviceHandles.isEmpty()) {
+            if (log.isTraceEnabled()) {
+               log.trace("No services found for metadata: {} ", query);
+            }
+            return new MicroserviceSearchResponse(localServiceHandles.isEmpty() ? NOT_FOUND : WRONG_VERSION);
+         } else if (log.isTraceEnabled()) {
+            log.trace("{} services found for {}", serviceHandles.size(), query);
+         }
+         return new MicroserviceSearchResponse(serviceHandles.get(0).getHandle(), FOUND);
+      } catch (Throwable e) {
+         log.error("Exception thrown during service lookup. ", e);
+         return new MicroserviceSearchResponse(EXCEPTION_THROWN_DURING_LOOKUP);
       }
-      return new MicroserviceSearchResponse(serviceHandles.get(0).getHandle(), MicroserviceSearchResponse.Result.FOUND);
 
    }
 

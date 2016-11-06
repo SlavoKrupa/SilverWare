@@ -31,7 +31,11 @@ public class MicroserviceSearchResponse implements Serializable {
     * This enum represents result of a search on a cluster
     */
    public enum Result {
-      FOUND(true), NOT_FOUND(false), WRONG_VESION(false);
+      FOUND(true),
+      NOT_FOUND(false),
+      WRONG_VERSION(false),
+      EXCEPTION_THROWN_DURING_LOOKUP(false),
+      MULTIPLE_IMPLEMENTATIONS_FOUND(false);
       private boolean usable;
 
       Result(boolean canBeUsed) {
@@ -46,7 +50,12 @@ public class MicroserviceSearchResponse implements Serializable {
    private final Integer handle;
    private final Result result;
 
-   public MicroserviceSearchResponse(Integer handle, Result result) {
+   public MicroserviceSearchResponse(final Result result) {
+      this.result = result;
+      handle = null;
+   }
+
+   public MicroserviceSearchResponse(final Integer handle, final Result result) {
       this.handle = handle;
       this.result = result;
    }
@@ -55,7 +64,19 @@ public class MicroserviceSearchResponse implements Serializable {
       return result;
    }
 
+   public boolean canBeUsed() {
+      return result.canBeUsed();
+   }
+
    public Integer getHandle() {
       return handle;
+   }
+
+   @Override
+   public String toString() {
+      return "MicroserviceSearchResponse{" +
+            "handle=" + handle +
+            ", result=" + result +
+            '}';
    }
 }

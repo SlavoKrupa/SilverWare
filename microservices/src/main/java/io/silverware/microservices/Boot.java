@@ -19,6 +19,8 @@
  */
 package io.silverware.microservices;
 
+import io.silverware.microservices.util.Utils;
+
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -35,8 +37,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Properties;
-
-import io.silverware.microservices.util.Utils;
 
 /**
  * Main class to boot the Microservices platforms.
@@ -56,7 +56,8 @@ public final class Boot {
     *
     * Uses Executor Microservice Provider as a boot hook.
     *
-    * @param args Any additional properties can be specified at the command line via -Dprop=value.
+    * @param args
+    *       Any additional properties can be specified at the command line via -Dprop=value.
     */
    public static void main(final String... args) {
       preMainConfig();
@@ -77,7 +78,6 @@ public final class Boot {
     * Performs some quick system settings for a smooth run.
     */
    private static void preMainConfig() {
-      System.setProperty("java.net.preferIPv4Stack", "true");
       Thread.currentThread().setName(Executor.THREAD_PREFIX + Executor.MAIN_THREAD);
    }
 
@@ -118,7 +118,8 @@ public final class Boot {
    /**
     * Creates initial context pre-filled with system properties, command line arguments, custom property file and default property file.
     *
-    * @param args Command line arguments.
+    * @param args
+    *       Command line arguments.
     * @return Initial context pre-filled with system properties, command line arguments, custom property file and default property file.
     */
    @SuppressWarnings("static-access")

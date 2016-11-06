@@ -28,11 +28,12 @@ import io.silverware.microservices.silver.cluster.RemoteServiceHandlesStore;
 import io.silverware.microservices.silver.cluster.ServiceHandle;
 
 import org.jgroups.Address;
-import org.jgroups.util.FutureListener;
 import org.jgroups.util.RspList;
 import org.testng.annotations.Test;
 
+import java.io.Serializable;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -45,34 +46,38 @@ import mockit.Tested;
  */
 public class ClusterMicroserviceProviderTest {
 
-   public static final RemoteServiceHandlesStore REMOTE_SERVICE_HANDLES_STORE = new RemoteServiceHandlesStore();
+   private Address address = new org.jgroups.util.UUID();
 
    @Tested
    private ClusterMicroserviceProvider clusterMicroserviceProvider;
    @Injectable
-   private RemoteServiceHandlesStore store;
+   private RemoteServiceHandlesStore remoteServiceHandlesStore;
    @Injectable
    private JgroupsMessageSender sender;
 
    @Test
    public void testLookupMicroservice() throws Exception {
-      Set<ServiceHandle> mockHandles = Util.createSetFrom(Util.createHandle("1"), Util.createHandle("2"));
+
+      MicroserviceSearchResponse response = new MicroserviceSearchResponse(1, MicroserviceSearchResponse.Result.FOUND);
+      RspList<MicroserviceSearchResponse> rspList = new RspList<>();
+      rspList.addRsp(address, response);
+      CompletableFuture<RspList<MicroserviceSearchResponse>> completableFuture = CompletableFuture.completedFuture(rspList);
       Set<Object> services = Util.createSetFrom(new Object(), new Object());
 
       new Expectations() {{
-         sender.sendToClusterAsync(META_DATA, (Set<Address>) any, (FutureListener<RspList<MicroserviceSearchResponse>>) any);
+         sender.sendToClusterAsync((Serializable) any, (Set<Address>) any);
          times = 1;
-         result = mockHandles;
-         // TODO: 9/9/16 test this again
-         //         store.addHandles(META_DATA, mockHandles);
-         //         times = 1;
-         store.getServices(META_DATA);
+         result = completableFuture;
+         remoteServiceHandlesStore.addHandles(META_DATA, (Set<ServiceHandle>) any);
+         times = 1;
+
+         remoteServiceHandlesStore.getServices(META_DATA);
          result = services;
          times = 1;
 
       }};
       Set<Object> objects = clusterMicroserviceProvider.lookupMicroservice(META_DATA);
-      assertThat(objects).isNotEmpty().isEqualTo(services);
+      assertThat(objects).isEqualTo(services);
    }
 
    @Test

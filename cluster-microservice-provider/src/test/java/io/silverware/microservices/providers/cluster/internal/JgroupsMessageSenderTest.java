@@ -23,10 +23,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.jgroups.Address;
-import org.jgroups.Message;
 import org.jgroups.blocks.MessageDispatcher;
 import org.jgroups.blocks.RequestOptions;
 import org.jgroups.blocks.ResponseMode;
+import org.jgroups.util.Buffer;
+import org.jgroups.util.Util;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -65,18 +66,18 @@ public class JgroupsMessageSenderTest {
    @Test
    public void testSendToClusterSync() throws Exception {
       new Expectations(jgroupsMessageSender) {{
-         Deencapsulation.invoke(jgroupsMessageSender, "getMembersAdresses");
+         Deencapsulation.invoke(jgroupsMessageSender, "getMembersAddresses");
          result = Collections.emptyList();
       }};
       String id = UUID.randomUUID().toString();
       jgroupsMessageSender.sendToClusterSync(id);
       new Verifications() {{
-         Message msg;
+         Buffer buffer;
          RequestOptions options;
          List<Address> addresses;
-         dispatcher.castMessage(addresses = withCapture(), msg = withCapture(), options = withCapture());
-         assertThat(msg.getObject()).isEqualTo(id);
-         assertThat(msg.getDest()).isNull();
+         dispatcher.castMessage(addresses = withCapture(), buffer = withCapture(), options = withCapture());
+         Object content = Util.objectFromByteBuffer(buffer.getBuf());
+         assertThat(content).isEqualTo(id);
          assertThat(options.getMode()).isEqualTo(ResponseMode.GET_ALL);
          assertThat(addresses).isEmpty();
       }};
@@ -86,13 +87,15 @@ public class JgroupsMessageSenderTest {
    @Test
    public void testSendToAddressAsync() throws Exception {
       String id = UUID.randomUUID().toString();
-      jgroupsMessageSender.sendToAddressAsync(address, id);
+      jgroupsMessageSender.sendToAddressAsync(this.address, id);
       new Verifications() {{
-         Message msg;
+         Address actualAddress;
+         Buffer buffer;
          RequestOptions options;
-         dispatcher.sendMessage(msg = withCapture(), options = withCapture());
-         assertThat(msg.getObject()).isEqualTo(id);
-         assertThat(msg.getDest()).isEqualTo(address);
+         dispatcher.sendMessage(actualAddress = withCapture(), buffer = withCapture(), options = withCapture());
+         Object content = Util.objectFromByteBuffer(buffer.getBuf());
+         assertThat(content).isEqualTo(id);
+         assertThat(actualAddress).isEqualTo(address);
          assertThat(options.getMode()).isEqualTo(ResponseMode.GET_NONE);
       }};
 
@@ -103,11 +106,13 @@ public class JgroupsMessageSenderTest {
       String id = UUID.randomUUID().toString();
       jgroupsMessageSender.sendToAddressSync(address, id);
       new Verifications() {{
-         Message msg;
+         Address actualAddress;
+         Buffer buffer;
          RequestOptions options;
-         dispatcher.sendMessage(msg = withCapture(), options = withCapture());
-         assertThat(msg.getObject()).isEqualTo(id);
-         assertThat(msg.getDest()).isEqualTo(address);
+         dispatcher.sendMessage(actualAddress = withCapture(), buffer = withCapture(), options = withCapture());
+         Object content = Util.objectFromByteBuffer(buffer.getBuf());
+         assertThat(content).isEqualTo(id);
+         assertThat(actualAddress).isEqualTo(address);
          assertThat(options.getMode()).isEqualTo(ResponseMode.GET_ALL);
       }};
 

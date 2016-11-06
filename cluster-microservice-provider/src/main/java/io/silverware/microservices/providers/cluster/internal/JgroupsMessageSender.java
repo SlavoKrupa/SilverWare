@@ -22,10 +22,9 @@ package io.silverware.microservices.providers.cluster.internal;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jgroups.Address;
-import org.jgroups.Message;
 import org.jgroups.blocks.MessageDispatcher;
 import org.jgroups.blocks.RequestOptions;
-import org.jgroups.util.FutureListener;
+import org.jgroups.util.Buffer;
 import org.jgroups.util.RspList;
 import org.jgroups.util.Util;
 
@@ -34,6 +33,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -51,7 +51,7 @@ public class JgroupsMessageSender {
    private static final RequestOptions ASYNC_OPTIONS = RequestOptions.ASYNC();
 
    private final MessageDispatcher dispatcher;
-   private Set<Address> filteredAdresses;
+   private Set<Address> filteredAddresses;
 
    public JgroupsMessageSender(MessageDispatcher dispatcher) {
       if (dispatcher == null) {
@@ -60,13 +60,13 @@ public class JgroupsMessageSender {
       this.dispatcher = dispatcher;
    }
 
-   private Set<Address> getFilteredAdresses() {
-      if (this.filteredAdresses == null) {
-         this.filteredAdresses = new HashSet<>();
+   private Set<Address> getFilteredAddresses() {
+      if (this.filteredAddresses == null) {
+         this.filteredAddresses = new HashSet<>();
          // add my address
-         filteredAdresses.add(this.dispatcher.getChannel().getAddress());
+         filteredAddresses.add(this.dispatcher.getChannel().getAddress());
       }
-      return this.filteredAdresses;
+      return this.filteredAddresses;
    }
 
    /**
@@ -75,8 +75,8 @@ public class JgroupsMessageSender {
     * @param content
     *       content of message
     */
-   public <T> RspList<T> sendToClusterSync(Serializable content) throws Exception {
-      return this.dispatcher.castMessage(getMembersAdresses(), new Message(null, content), SYNC_OPTIONS);
+   public RspList sendToClusterSync(Serializable content) throws Exception {
+      return this.dispatcher.castMessage(getMembersAddresses(), createBufferFromObject(content), SYNC_OPTIONS);
    }
 
    /**
@@ -84,18 +84,18 @@ public class JgroupsMessageSender {
     *
     * @param content
     *       content of message
-    * @param listener
-    *       listener which will be called when result will be available
     */
-   public <T> void sendToClusterAsync(Serializable content, Set<Address> addressesToSkip, FutureListener<RspList<T>> listener) throws Exception {
-      List<Address> othertMembersAdresses = getOthertMembersAdresses().stream().filter(address -> !addressesToSkip.contains(address)).collect(Collectors.toList());
-      if (!othertMembersAdresses.isEmpty()) {
-         this.dispatcher.castMessageWithFuture(othertMembersAdresses, new Message(null, content), SYNC_OPTIONS, listener);
+   public <T> CompletableFuture<RspList<T>> sendToClusterAsync(Serializable content, Set<Address> addressesToSkip) throws Exception {
+      List<Address> otherMembersAddresses = getOtherMembersAddresses().stream().filter(address -> !addressesToSkip.contains(address)).collect(Collectors.toList());
+      if (!otherMembersAddresses.isEmpty()) {
+         return this.dispatcher.castMessageWithFuture(otherMembersAddresses, createBufferFromObject(content), SYNC_OPTIONS);
       } else {
          if (log.isDebugEnabled()) {
             log.debug("No message sent.");
          }
       }
+
+      return CompletableFuture.completedFuture(new RspList<T>());
    }
 
    /**
@@ -103,20 +103,18 @@ public class JgroupsMessageSender {
     *
     * @param content
     *       content of message
-    * @param listener
-    *       listener which will be called when result will be available
     */
-   public <T> void sendToClusterAsync(Serializable content, FutureListener<RspList<T>> listener) throws Exception {
-      sendToClusterAsync(content, Collections.emptySet(), listener);
+   public <T> CompletableFuture<RspList<T>> sendToClusterAsync(Serializable content) throws Exception {
+      return sendToClusterAsync(content, Collections.emptySet());
    }
 
-   private List<Address> getMembersAdresses() {
+   private List<Address> getMembersAddresses() {
       return this.dispatcher.getChannel().getView().getMembers();
    }
 
-   private List<Address> getOthertMembersAdresses() {
-      Set<Address> filteredAdresses = getFilteredAdresses();
-      return this.getMembersAdresses().stream().filter(address -> !filteredAdresses.contains(address)).collect(Collectors.toList());
+   private List<Address> getOtherMembersAddresses() {
+      Set<Address> filteredAddresses = getFilteredAddresses();
+      return this.getMembersAddresses().stream().filter(address -> !filteredAddresses.contains(address)).collect(Collectors.toList());
    }
 
    /**
@@ -126,7 +124,7 @@ public class JgroupsMessageSender {
     *       content of message
     */
    public void sendToAddressAsync(Address address, Serializable content) throws Exception {
-      this.dispatcher.sendMessage(new Message(address, Util.objectToByteBuffer(content)), ASYNC_OPTIONS);
+      this.dispatcher.sendMessage(address, createBufferFromObject(content), ASYNC_OPTIONS);
    }
 
    /**
@@ -136,7 +134,12 @@ public class JgroupsMessageSender {
     *       content of message
     */
    public <T> T sendToAddressSync(Address address, Serializable content) throws Exception {
-      return this.dispatcher.sendMessage(new Message(address, Util.objectToByteBuffer(content)), SYNC_OPTIONS);
+      return this.dispatcher.sendMessage(address, createBufferFromObject(content), SYNC_OPTIONS);
+   }
+
+   private Buffer createBufferFromObject(final Serializable content) throws Exception {
+      byte[] bytes = Util.objectToByteBuffer(content);
+      return new Buffer(bytes, 0, bytes.length);
    }
 
 }

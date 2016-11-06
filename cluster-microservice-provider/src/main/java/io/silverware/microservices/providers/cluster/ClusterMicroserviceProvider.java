@@ -31,7 +31,6 @@ import io.silverware.microservices.providers.cluster.internal.JgroupsMessageSend
 import io.silverware.microservices.providers.cluster.internal.exception.SilverWareClusteringException;
 import io.silverware.microservices.providers.cluster.internal.message.KnownImplementation;
 import io.silverware.microservices.providers.cluster.internal.message.response.MicroserviceSearchResponse;
-import io.silverware.microservices.providers.cluster.internal.util.FutureListenerHelper;
 import io.silverware.microservices.silver.ClusterSilverService;
 import io.silverware.microservices.silver.cluster.RemoteServiceHandlesStore;
 import io.silverware.microservices.silver.cluster.ServiceHandle;
@@ -42,15 +41,14 @@ import org.apache.logging.log4j.Logger;
 import org.jgroups.Address;
 import org.jgroups.JChannel;
 import org.jgroups.blocks.MessageDispatcher;
-import org.jgroups.util.Rsp;
 import org.jgroups.util.RspList;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -91,10 +89,11 @@ public class ClusterMicroserviceProvider implements MicroserviceProvider, Cluste
          log.info("Loading cluster configuration from: {} ", clusterConfiguration);
          JChannel channel = new JChannel(clusterConfiguration);
          JgroupsMessageReceiver receiver = new JgroupsMessageReceiver(KnownImplementation.initializeReponders(context), remoteServiceHandlesStore);
-         this.messageDispatcher = new MessageDispatcher(channel, receiver, receiver, receiver);
-         this.sender = new JgroupsMessageSender(this.messageDispatcher);
+         channel.setReceiver(receiver);
          log.info("Setting cluster group: {} ", clusterGroup);
          channel.connect(clusterGroup);
+         this.messageDispatcher = new MessageDispatcher(channel, receiver);
+         this.sender = new JgroupsMessageSender(this.messageDispatcher);
          receiver.setMyAddress(channel.getAddress());
          stopwatch.stop();
          log.info("Initialization of ClusterMicroserviceProvider took {} ms. ", stopwatch.elapsed(TimeUnit.MILLISECONDS));
@@ -131,32 +130,35 @@ public class ClusterMicroserviceProvider implements MicroserviceProvider, Cluste
    public Set<Object> lookupMicroservice(final MicroserviceMetaData metaData) {
       try {
          Set<Address> addressesForMetadata = alreadyQueriedAddresses.getOrDefault(metaData, new HashSet<>());
-         this.sender.sendToClusterAsync(metaData, addressesForMetadata,
-               new FutureListenerHelper<MicroserviceSearchResponse>(rspList -> {
-                  try {
-                     RspList<MicroserviceSearchResponse> responseRspList = rspList.get(10, TimeUnit.SECONDS);
-                     if (log.isTraceEnabled()) {
-                        log.trace("Response retrieved!  {}", responseRspList);
-                     }
-                     Collection<Rsp<MicroserviceSearchResponse>> result = responseRspList.values();
-                     if (log.isTraceEnabled()) {
-                        log.trace("Size of a responses is : {} ", responseRspList.getResults().size());
-                     }
-                     result.stream().filter(Rsp::hasException).forEach(rsp -> log.error("Exception was thrown during lookup on node: " + rsp.getSender(), rsp.getException()));
+         CompletableFuture<RspList<MicroserviceSearchResponse>> completableFuture = this.sender.sendToClusterAsync(metaData, addressesForMetadata);
+         completableFuture.whenCompleteAsync((result, exception) -> {
+            if (exception != null) {
+               log.error("Error while looking up microservices.", exception);
+               return;
+            }
+            try {
+               if (log.isTraceEnabled()) {
+                  log.trace("Response retrieved!  {}", result);
+               }
+               if (log.isTraceEnabled()) {
+                  log.trace("Size of a responses is : {} ", result.getResults().size());
+               }
 
-                     Set<ServiceHandle> remoteServiceHandles = result.stream()
-                                                                     .filter(rsp -> rsp.wasReceived() && !rsp.hasException() && rsp.getValue().getResult().canBeUsed())
-                                                                     .map((rsp) -> new RemoteServiceHandle(rsp.getSender(), rsp.getValue().getHandle(), sender, metaData))
-                                                                     .collect(Collectors.toSet());
-                     // this is to save jgroups traffic for a given metadata
-                     addressesForMetadata.addAll(responseRspList.values().stream().map(Rsp::getSender).collect(Collectors.toSet()));
-                     alreadyQueriedAddresses.put(metaData, addressesForMetadata);
-                     this.remoteServiceHandlesStore.addHandles(metaData, remoteServiceHandles);
-                  } catch (Throwable e) {
-                     log.error("Error while looking up microservices.", e);
-                  }
+               result.entrySet().stream().filter((entry) -> entry.getValue().hasException())
+                     .forEach(entry -> log.error("Exception was thrown during lookup on other node {} : " + entry.getKey(), entry.getValue().getException()));
+               Set<ServiceHandle> remoteServiceHandles = result.entrySet().stream()
+                                                               .filter(entry -> entry.getValue().wasReceived() && !entry.getValue().hasException() && entry.getValue().getValue().canBeUsed())
+                                                               .map((entry) -> new RemoteServiceHandle(entry.getKey(), entry.getValue().getValue().getHandle(), sender, metaData))
+                                                               .collect(Collectors.toSet());
+               // this is to save jgroups traffic for a given metadata
+               addressesForMetadata.addAll(result.entrySet().stream().filter(entry -> !entry.getValue().hasException()).map(Map.Entry::getKey).collect(Collectors.toSet()));
+               alreadyQueriedAddresses.put(metaData, addressesForMetadata);
+               this.remoteServiceHandlesStore.addHandles(metaData, remoteServiceHandles);
+            } catch (Throwable e) {
+               log.error("Error while looking up microservices.", e);
+            }
 
-               }));
+         });
          // If this is first query for the metadata we should wait for a response
          if (addressesForMetadata.isEmpty()) {
             Thread.sleep(timeout);
